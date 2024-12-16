@@ -3,6 +3,7 @@ import subprocess
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
+import sys
 
 class VideoSplitterApp:
     def __init__(self, root):
@@ -13,7 +14,7 @@ class VideoSplitterApp:
         # Визначення шляху до іконки після компіляції
         if getattr(sys, 'frozen', False):
             # Якщо програма запущена після компіляції
-            icon_path = os.path.join(sys._MEIPASS, "icon.ico")
+           icon_path = os.path.join(sys._MEIPASS, "icon.ico")
         else:
             # Якщо програма запущена як звичайний скрипт
             icon_path = "icon.ico"
@@ -42,7 +43,7 @@ class VideoSplitterApp:
         self.file_button = tk.Button(self.frame_input, text="Огляд", command=self.browse_file)
         self.file_button.grid(row=0, column=2, padx=5, pady=5)
 
-        self.folder_label = tk.Label(self.frame_input, text="Папка:")
+        self.folder_label = tk.Label(self.frame_input, text="Папка для фрагментів:")
         self.folder_label.grid(row=1, column=0, padx=5, pady=5)
 
         self.folder_entry = tk.Entry(self.frame_input, width=30)
@@ -134,26 +135,43 @@ class VideoSplitterApp:
         elif mode == "parts":
             try:
                 num_parts = int(param)
+                
                 # Отримання загальної тривалості відео
                 probe_cmd = [ffmpeg_path, "-i", input_file, "-hide_banner"]
                 probe_result = subprocess.run(probe_cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
                 duration_line = [line for line in probe_result.stderr.decode().split("\n") if "Duration" in line]
+                
                 if not duration_line:
                     raise ValueError("Неможливо отримати тривалість відео.")
+                
+                # Зчитуємо тривалість відео
                 duration = duration_line[0].split(",")[0].split("Duration:")[1].strip()
                 hours, minutes, seconds = map(float, duration.split(":"))
+                
+                # Переведення в секунди
                 total_seconds = int(hours * 3600 + minutes * 60 + seconds)
-                segment_time = total_seconds // num_parts
-                segment_time_str = f"{segment_time // 3600:02}:{(segment_time % 3600) // 60:02}:{segment_time % 60:02}"
+                
+                # Обчислення рівномірного часу для кожного фрагмента
+                segment_time = total_seconds / num_parts  # Ділимо на кількість частин
+                segment_time = round(segment_time)  # Округлюємо до найближчого цілого числа
 
+                # Перевіряємо, чи не з'явився зайвий сегмент
+                remaining_time = total_seconds - (segment_time * num_parts)
+                if remaining_time > 0:
+                    # Якщо залишок часу є, додаємо його до останнього сегмента
+                    segment_time += remaining_time
+                
+                # Формуємо команду
                 command = [
                     ffmpeg_path, "-i", input_file, "-c", "copy", "-map", "0:v", "-map", "0:a",
-                    "-segment_time", segment_time_str, "-f", "segment", "-reset_timestamps", "1",
+                    "-segment_time", str(segment_time), "-f", "segment", "-reset_timestamps", "1",
                     os.path.join(output_folder, "%03d.mp4")
                 ]
             except ValueError:
                 messagebox.showerror("Помилка", "Невірна кількість частин.")
                 return
+
+
 
         else:
             messagebox.showerror("Помилка", "Оберіть режим.")
