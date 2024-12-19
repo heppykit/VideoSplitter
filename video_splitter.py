@@ -22,7 +22,6 @@ class VideoSplitterApp:
         # Встановлення іконки для вікна
         self.root.iconbitmap(icon_path)
 
-
         # Створення фрейму для організації елементів
         self.frame_input = tk.Frame(root)
         self.frame_input.pack(pady=5)
@@ -117,16 +116,20 @@ class VideoSplitterApp:
         else:  # Для звичайного запуску з Python
           ffmpeg_path = os.path.join(os.getcwd(), "ffmpeg", "bin", "ffmpeg.exe")
 
+        # Отримання назви вхідного файлу без розширення
+        input_filename = os.path.splitext(os.path.basename(input_file))[0]
+
         # Формування команди залежно від режиму
         if mode == "time":
             try:
                 # Перевірка формату часу MM:SS
                 minutes, seconds = map(int, param.split(":"))
                 segment_time = f"{minutes:02}:{seconds:02}"
+                # Включаємо ім'я вхідного файлу у шаблон імені вихідного файлу
                 command = [
                     ffmpeg_path, "-i", input_file, "-c", "copy", "-map", "0:v", "-map", "0:a",
                     "-segment_time", segment_time, "-f", "segment", "-reset_timestamps", "1",
-                    os.path.join(output_folder, "%03d.mp4")
+                    os.path.join(output_folder, f"{input_filename}_%03d.mp4")  # Додаємо ім'я файлу
                 ]
             except ValueError:
                 messagebox.showerror("Помилка", "Невірний формат часу. Використовуйте MM:SS.")
@@ -161,17 +164,18 @@ class VideoSplitterApp:
                     # Якщо залишок часу є, додаємо його до останнього сегмента
                     segment_time += remaining_time
                 
+                # Включаємо ім'я вхідного файлу у шаблон імені вихідного файлу
+                output_file_pattern = os.path.join(output_folder, f"{input_filename}_%03d.mp4")
+                
                 # Формуємо команду
                 command = [
                     ffmpeg_path, "-i", input_file, "-c", "copy", "-map", "0:v", "-map", "0:a",
                     "-segment_time", str(segment_time), "-f", "segment", "-reset_timestamps", "1",
-                    os.path.join(output_folder, "%03d.mp4")
+                    output_file_pattern  # Додаємо ім'я файлу
                 ]
             except ValueError:
                 messagebox.showerror("Помилка", "Невірна кількість частин.")
                 return
-
-
 
         else:
             messagebox.showerror("Помилка", "Оберіть режим.")
@@ -187,6 +191,7 @@ class VideoSplitterApp:
                 messagebox.showerror("Помилка", f"Сталася помилка: {e}")
 
         threading.Thread(target=run_ffmpeg).start()
+
 
 if __name__ == "__main__":
     root = tk.Tk()
