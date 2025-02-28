@@ -9,20 +9,14 @@ class VideoSplitterApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Відео Розділювач")
-        self.root.geometry("400x300")  # Зменшено розмір вікна
+        self.root.geometry("400x350")  # Збільшено розмір для нового чекбокса
 
-        # Визначення шляху до іконки після компіляції
         if getattr(sys, 'frozen', False):
-            # Якщо програма запущена після компіляції
-           icon_path = os.path.join(sys._MEIPASS, "icon.ico")
+            icon_path = os.path.join(sys._MEIPASS, "icon.ico")
         else:
-            # Якщо програма запущена як звичайний скрипт
             icon_path = "icon.ico"
-
-        # Встановлення іконки для вікна
         self.root.iconbitmap(icon_path)
 
-        # Створення фрейму для організації елементів
         self.frame_input = tk.Frame(root)
         self.frame_input.pack(pady=5)
 
@@ -32,7 +26,6 @@ class VideoSplitterApp:
         self.frame_controls = tk.Frame(root)
         self.frame_controls.pack(pady=10)
 
-        # Вибір файлу та папки
         self.file_label = tk.Label(self.frame_input, text="Відео файл:")
         self.file_label.grid(row=0, column=0, padx=5, pady=5)
 
@@ -51,7 +44,6 @@ class VideoSplitterApp:
         self.folder_button = tk.Button(self.frame_input, text="Огляд", command=self.browse_folder)
         self.folder_button.grid(row=1, column=2, padx=5, pady=5)
 
-        # Режим розділення
         self.mode_label = tk.Label(self.frame_split, text="Режим:")
         self.mode_label.grid(row=0, column=0, columnspan=2, pady=5)
 
@@ -62,18 +54,20 @@ class VideoSplitterApp:
         self.parts_radio = tk.Radiobutton(self.frame_split, text="Частини", variable=self.mode_var, value="parts", command=self.toggle_mode)
         self.parts_radio.grid(row=1, column=1, padx=5, pady=5)
 
-        # Параметри розділення
         self.param_label = tk.Label(self.frame_split, text="Параметр:")
         self.param_label.grid(row=2, column=0, padx=5, pady=5)
 
         self.param_entry = tk.Entry(self.frame_split, width=10)
         self.param_entry.grid(row=2, column=1, padx=5, pady=5)
 
-        # Кнопка розділення
+        # Чекбокс для видалення аудіо
+        self.remove_audio_var = tk.BooleanVar()
+        self.remove_audio_checkbox = tk.Checkbutton(self.frame_split, text="Видалити аудіо", variable=self.remove_audio_var)
+        self.remove_audio_checkbox.grid(row=3, column=0, columnspan=2, pady=5)
+
         self.split_button = tk.Button(self.frame_controls, text="Розділити", command=self.split_video)
         self.split_button.pack(pady=5)
 
-        # Сповіщення
         self.notification_label = tk.Label(self.frame_controls, text="", fg="blue")
         self.notification_label.pack()
 
@@ -90,7 +84,6 @@ class VideoSplitterApp:
             self.folder_entry.insert(0, folder_path)
 
     def toggle_mode(self):
-        """Перемикає текст підказок залежно від вибраного режиму."""
         if self.mode_var.get() == "time":
             self.param_label.config(text="Тривалість (MM:SS):")
             self.param_entry.delete(0, tk.END)
@@ -111,26 +104,31 @@ class VideoSplitterApp:
 
         mode = self.mode_var.get()
         param = self.param_entry.get()
-        if getattr(sys, 'frozen', False):  # Для виконуваного файлу (після компіляції)
-          ffmpeg_path = os.path.join(sys._MEIPASS, "ffmpeg", "bin", "ffmpeg.exe")
-        else:  # Для звичайного запуску з Python
-          ffmpeg_path = os.path.join(os.getcwd(), "ffmpeg", "bin", "ffmpeg.exe")
+        remove_audio = self.remove_audio_var.get()
 
-        # Отримання назви вхідного файлу без розширення
+        if getattr(sys, 'frozen', False):
+            ffmpeg_path = os.path.join(sys._MEIPASS, "ffmpeg", "bin", "ffmpeg.exe")
+        else:
+            ffmpeg_path = os.path.join(os.getcwd(), "ffmpeg", "bin", "ffmpeg.exe")
+
         input_filename = os.path.splitext(os.path.basename(input_file))[0]
 
-        # Формування команди залежно від режиму
+        command = []
+
         if mode == "time":
             try:
-                # Перевірка формату часу MM:SS
                 minutes, seconds = map(int, param.split(":"))
                 segment_time = f"{minutes:02}:{seconds:02}"
-                # Включаємо ім'я вхідного файлу у шаблон імені вихідного файлу
+                output_pattern = os.path.join(output_folder, f"{input_filename}_%03d.mp4")
+
                 command = [
-                    ffmpeg_path, "-i", input_file, "-c", "copy", "-map", "0:v", "-map", "0:a",
+                    ffmpeg_path, "-i", input_file, "-c", "copy",
                     "-segment_time", segment_time, "-f", "segment", "-reset_timestamps", "1",
-                    os.path.join(output_folder, f"{input_filename}_%03d.mp4")  # Додаємо ім'я файлу
+                    output_pattern
                 ]
+                if remove_audio:
+                    command.insert(5, "-an")
+
             except ValueError:
                 messagebox.showerror("Помилка", "Невірний формат часу. Використовуйте MM:SS.")
                 return
@@ -138,41 +136,28 @@ class VideoSplitterApp:
         elif mode == "parts":
             try:
                 num_parts = int(param)
-                
-                # Отримання загальної тривалості відео
                 probe_cmd = [ffmpeg_path, "-i", input_file, "-hide_banner"]
                 probe_result = subprocess.run(probe_cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
                 duration_line = [line for line in probe_result.stderr.decode().split("\n") if "Duration" in line]
-                
+
                 if not duration_line:
                     raise ValueError("Неможливо отримати тривалість відео.")
-                
-                # Зчитуємо тривалість відео
+
                 duration = duration_line[0].split(",")[0].split("Duration:")[1].strip()
                 hours, minutes, seconds = map(float, duration.split(":"))
-                
-                # Переведення в секунди
                 total_seconds = int(hours * 3600 + minutes * 60 + seconds)
-                
-                # Обчислення рівномірного часу для кожного фрагмента
-                segment_time = total_seconds / num_parts  # Ділимо на кількість частин
-                segment_time = round(segment_time)  # Округлюємо до найближчого цілого числа
+                segment_time = round(total_seconds / num_parts)
 
-                # Перевіряємо, чи не з'явився зайвий сегмент
-                remaining_time = total_seconds - (segment_time * num_parts)
-                if remaining_time > 0:
-                    # Якщо залишок часу є, додаємо його до останнього сегмента
-                    segment_time += remaining_time
-                
-                # Включаємо ім'я вхідного файлу у шаблон імені вихідного файлу
-                output_file_pattern = os.path.join(output_folder, f"{input_filename}_%03d.mp4")
-                
-                # Формуємо команду
+                output_pattern = os.path.join(output_folder, f"{input_filename}_%03d.mp4")
+
                 command = [
-                    ffmpeg_path, "-i", input_file, "-c", "copy", "-map", "0:v", "-map", "0:a",
+                    ffmpeg_path, "-i", input_file, "-c", "copy",
                     "-segment_time", str(segment_time), "-f", "segment", "-reset_timestamps", "1",
-                    output_file_pattern  # Додаємо ім'я файлу
+                    output_pattern
                 ]
+                if remove_audio:
+                    command.insert(5, "-an")
+
             except ValueError:
                 messagebox.showerror("Помилка", "Невірна кількість частин.")
                 return
@@ -181,7 +166,6 @@ class VideoSplitterApp:
             messagebox.showerror("Помилка", "Оберіть режим.")
             return
 
-        # Виконання команди ffmpeg
         def run_ffmpeg():
             try:
                 self.notification_label.config(text="Розпочато обробку відео...")
